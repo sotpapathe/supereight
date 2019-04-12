@@ -29,9 +29,18 @@
 #include "sys/stat.h"
 
 enum ReaderType {
-  READER_RAW, READER_SCENE, READER_OPENNI
+  READER_RAW,
+  READER_SCENE,
+  READER_OPENNI
 };
 
+
+
+
+
+/**
+ * A struct containing configuration options for a reader class instance.
+ */
 struct ReaderConfiguration {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   int fps;
@@ -41,20 +50,24 @@ struct ReaderConfiguration {
   Eigen::Matrix4f transform;
 };
 
+
+
+
+
 class DepthReader {
   public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
     virtual ~DepthReader() { }
 
-    virtual bool readNextDepthFrame(float * depthMap)= 0;
+    virtual bool readNextDepthFrame(float* depthMap) = 0;
 
-    inline bool readNextDepthFrame(unsigned short int * UintdepthMap) {
+    inline bool readNextDepthFrame(unsigned short int* UintdepthMap) {
       return readNextDepthFrame(NULL, UintdepthMap);
     }
 
     virtual bool readNextDepthFrame(uchar3*              raw_rgb,
-                                    unsigned short int * depthMap) = 0;
+                                    unsigned short int* depthMap) = 0;
 
     virtual bool readNextData(uchar3*          ,
                               uint16_t*        ,
@@ -74,16 +87,9 @@ class DepthReader {
       return (_frame);
     }
 
-    virtual ReaderType getType() =0;
+    virtual ReaderType getType() = 0;
 
     void get_next_frame() {
-
-      //		std::cout << "\rNext frame " << std::setw(10) << _frame << " ";
-      //
-      //		if (_frame % 2) {
-      //			fflush(stdout);
-      //		}
-
       if (_fps == 0) {
         _frame++;
         return;
@@ -109,10 +115,10 @@ class DepthReader {
       double tpf = 1.0 / _fps;
       double ttw = ((double) _frame * tpf - current_frame + first_frame);
       if (_blocking_read) {
-        if (ttw > 0)
+        if (ttw > 0) {
           usleep(1000000.0 * ttw);
+        }
       }
-
     }
 
     inline bool readNextPose(Eigen::Matrix4f& pose) {
@@ -166,6 +172,10 @@ class DepthReader {
     Eigen::Matrix4f _transform;
 };
 
+
+
+
+
 static const float SceneK[3][3] = { { 481.20, 0.00, 319.50 }, { 0.00, -480.00,
   239.50 }, { 0.00, 0.00, 1.00 } };
 
@@ -176,6 +186,9 @@ static const float _v0 = SceneK[1][2];
 static const float _focal_x = SceneK[0][0];
 static const float _focal_y = SceneK[1][1];
 
+/**
+ * Reader for ICL-NUIM datasets.
+ */
 class SceneDepthReader: public DepthReader {
   private:
 
@@ -185,11 +198,19 @@ class SceneDepthReader: public DepthReader {
   public:
     ~SceneDepthReader() { };
 
+    /**
+     * Constructor using the ::ReaderConfiguration struct.
+     */
     SceneDepthReader(const ReaderConfiguration& config)
       : SceneDepthReader(config.data_path, config.fps, config.blocking_read){ }
 
-    SceneDepthReader(std::string dir, int fps, bool blocking_read) :
-      DepthReader(), _dir(dir), _inSize(make_uint2(640, 480)) {
+    /**
+     * Old style constructor. Does not support ground truth loading.
+     *
+     * @deprecated Might be removed in the future.
+     */
+    SceneDepthReader(std::string dir, int fps, bool blocking_read)
+      : DepthReader(), _dir(dir), _inSize(make_uint2(640, 480)) {
         std::cerr << "No such directory " << dir << std::endl;
         struct stat st;
         lstat(dir.c_str(), &st);
@@ -204,9 +225,7 @@ class SceneDepthReader: public DepthReader {
           cameraOpen = false;
           cameraActive = false;
         }
-
-      }
-    ;
+    };
 
     ReaderType getType() {
       return (READER_SCENE);
@@ -224,7 +243,7 @@ class SceneDepthReader: public DepthReader {
       _frame = 0;
     }
 
-    inline bool readNextDepthFrame(uchar3*, unsigned short int * depthMap) {
+    inline bool readNextDepthFrame(uchar3*, unsigned short int* depthMap) {
 
       float* FloatdepthMap = (float*) malloc(
           _inSize.x * _inSize.y * sizeof(float));
@@ -238,7 +257,7 @@ class SceneDepthReader: public DepthReader {
 
     }
 
-    inline bool readNextDepthFrame(float * depthMap) {
+    inline bool readNextDepthFrame(float* depthMap) {
 
       std::ostringstream filename;
       get_next_frame();
@@ -279,6 +298,10 @@ class SceneDepthReader: public DepthReader {
     }
 
 };
+
+
+
+
 
 /**
  * Reader for Slambench 1.0 datasets.
@@ -361,8 +384,8 @@ class RawDepthReader: public DepthReader {
       return (READER_RAW);
     }
 
-    inline bool readNextDepthFrame(uchar3*              raw_rgb,
-                                   unsigned short int * depthMap) {
+    inline bool readNextDepthFrame(uchar3*             raw_rgb,
+                                   unsigned short int* depthMap) {
 
       int total = 0;
       int expected_size = 0;
@@ -370,22 +393,14 @@ class RawDepthReader: public DepthReader {
 
       get_next_frame();
 
-      //		if (_frame < 2135)
-      //		{
-      //			_frame = 2135;
-      //		}
-      //
-      //		std::cout << "Frame: " << _frame << std::endl;
-
-
 #ifdef LIGHT_RAW // This LightRaw mode is used to get smaller raw files
-      unsigned int size_of_frame = (sizeof(unsigned int) * 2 + _inSize.x * _inSize.y * sizeof(unsigned short int) );
+      unsigned int size_of_frame = (sizeof(unsigned int) * 2
+          + _inSize.x * _inSize.y * sizeof(unsigned short int) );
 #else
       off_t size_of_frame = (sizeof(unsigned int) * 4
           + _inSize.x * _inSize.y * sizeof(unsigned short int)
           + _inSize.x * _inSize.y * sizeof(uchar3));
 #endif
-      // std::cout << "Seek: " << size_of_frame * _frame << std::endl;
 
       fseeko(_rawFilePtr, size_of_frame * _frame, SEEK_SET);
 
@@ -407,7 +422,6 @@ class RawDepthReader: public DepthReader {
 
       if (raw_rgb) {
         raw_rgb[0].x = 0;
-      } else {
       }
 
 #else
@@ -445,7 +459,7 @@ class RawDepthReader: public DepthReader {
         _gt_file.seekg(0, _gt_file.beg);
     }
 
-    inline bool readNextDepthFrame(float * depthMap) {
+    inline bool readNextDepthFrame(float* depthMap) {
 
       unsigned short int* UintdepthMap = (unsigned short int*) malloc(
           _inSize.x * _inSize.y * sizeof(unsigned short int));
@@ -495,6 +509,10 @@ class RawDepthReader: public DepthReader {
     }
 
 };
+
+
+
+
 
 #ifdef DO_OPENNI
 #include <OpenNI.h>
@@ -547,7 +565,7 @@ class OpenNIDepthReader: public DepthReader {
 
   public:
     ~OpenNIDepthReader() {
-      if(device.isValid()) {
+      if (device.isValid()) {
         //std::cout << "Stopping depth stream..." << std::endl;
 
         depth.stop();
@@ -567,18 +585,25 @@ class OpenNIDepthReader: public DepthReader {
         cameraOpen = false;
         cameraActive = false;
       }
-
     };
 
     ReaderType getType() {
       return(READER_OPENNI);
     }
 
+    /**
+     * Constructor using the ::ReaderConfiguration struct.
+     */
     OpenNIDepthReader(const ReaderConfiguration& config)
       : OpenNIDepthReader(config.data_path, config.fps, config.blocking_read){ }
 
-    OpenNIDepthReader(std::string filename, int fps, bool blocking_read) :
-      DepthReader(), _pFile(fopen(filename.c_str(), "rb")) {
+    /**
+     * Old style constructor. Does not support ground truth loading.
+     *
+     * @deprecated Might be removed in the future.
+     */
+    OpenNIDepthReader(std::string filename, int fps, bool blocking_read)
+      : DepthReader(), _pFile(fopen(filename.c_str(), "rb")) {
 
         cameraActive = false;
         cameraOpen = false;
@@ -597,7 +622,8 @@ class OpenNIDepthReader: public DepthReader {
         }
 
         if (rc != openni::STATUS_OK) {
-          std::cout << "No kinect device found. " << cameraActive << " " << cameraOpen << "\n";
+          std::cout << "No kinect device found. " << cameraActive
+              << " " << cameraOpen << "\n";
           return;
         }
 
@@ -605,15 +631,15 @@ class OpenNIDepthReader: public DepthReader {
           rc = depth.create(device, openni::SENSOR_DEPTH);
 
           if (rc != openni::STATUS_OK) {
-            std::cout << "Couldn't create depth stream" << std::endl << openni::OpenNI::getExtendedError() << std::endl;
-            //exit(3);
+            std::cout << "Couldn't create depth stream\n"
+                << openni::OpenNI::getExtendedError() << std::endl;
             return;
           } else {
             rc = depth.start();
             if (rc != openni::STATUS_OK) {
-              printf("Couldn't start depth stream:\n%s\n", openni::OpenNI::getExtendedError());
+              printf("Couldn't start depth stream:\n%s\n",
+                  openni::OpenNI::getExtendedError());
               depth.destroy();
-              //exit(3);
               return;
             }
             depth.stop();
@@ -623,8 +649,8 @@ class OpenNIDepthReader: public DepthReader {
           rc = rgb.create(device, openni::SENSOR_COLOR);
 
           if (rc != openni::STATUS_OK) {
-            std::cout << "Couldn't create color stream" << std::endl << openni::OpenNI::getExtendedError() << std::endl;
-            //exit(3);
+            std::cout << "Couldn't create color stream\n"
+                << openni::OpenNI::getExtendedError() << std::endl;
             return;
           }
 
@@ -632,18 +658,15 @@ class OpenNIDepthReader: public DepthReader {
 
         device.getSensorInfo(openni::SENSOR_DEPTH)->getSupportedVideoModes();
 
-        if(!device.isFile())
-        {
+        if (!device.isFile()) {
           openni::VideoMode newDepthMode;
           newDepthMode.setFps(fps == 0 ? 30 : fps);
           newDepthMode.setPixelFormat(openni::PIXEL_FORMAT_DEPTH_1_MM);
           newDepthMode.setResolution(640,480);
 
           rc = depth.setVideoMode(newDepthMode);
-          if(rc != openni::STATUS_OK)
-          {
+          if(rc != openni::STATUS_OK) {
             std::cout << "Could not set videomode" << std::endl;
-            //exit(3);
             return;
           }
 
@@ -653,8 +676,7 @@ class OpenNIDepthReader: public DepthReader {
           newRGBMode.setResolution(640,480);
 
           rc = rgb.setVideoMode(newRGBMode);
-          if(rc != openni::STATUS_OK)
-          {
+          if (rc != openni::STATUS_OK) {
             std::cout << "Could not set videomode" << std::endl;
 
             return;
@@ -667,9 +689,11 @@ class OpenNIDepthReader: public DepthReader {
         _inSize.x = depthMode.getResolutionX();
         _inSize.y = depthMode.getResolutionY();
 
-        if (colorMode.getResolutionX() != _inSize.x || colorMode.getResolutionY() != _inSize.y) {
-          std::cout << "Incorrect rgb resolution: " << colorMode.getResolutionX() << " " << colorMode.getResolutionY() << std::endl;
-          //exit(3);
+        if ((colorMode.getResolutionX() != _inSize.x)
+            || (colorMode.getResolutionY() != _inSize.y)) {
+          std::cout << "Incorrect rgb resolution: "
+              << colorMode.getResolutionX() << " "
+              << colorMode.getResolutionY() << std::endl;
           return;
         }
 
@@ -681,12 +705,12 @@ class OpenNIDepthReader: public DepthReader {
 
         device.setImageRegistrationMode(openni::IMAGE_REGISTRATION_DEPTH_TO_COLOR);
 
-        if(device.isFile())
-        {
+        if (device.isFile()) {
           device.getPlaybackControl()->setRepeatEnabled(false);
           depthFrame.release();
           colorFrame.release();
-          device.getPlaybackControl()->setSpeed(-1); // Set the playback in a manual mode i.e. read a frame whenever the application requests it
+          // Set the playback in a manual mode i.e. read a frame whenever the application requests it
+          device.getPlaybackControl()->setSpeed(-1);
         }
 
         // The allocators must survive this initialization function.
@@ -708,7 +732,8 @@ class OpenNIDepthReader: public DepthReader {
 
       };
 
-    inline bool readNextDepthFrame(uchar3* raw_rgb, unsigned short int * depthMap) {
+    inline bool readNextDepthFrame(uchar3*             raw_rgb,
+                                   unsigned short int* depthMap) {
 
       rc = depth.readFrame(&depthFrame);
 
@@ -723,8 +748,8 @@ class OpenNIDepthReader: public DepthReader {
         exit(1);
       }
 
-      if (depthFrame.getVideoMode().getPixelFormat() != openni::PIXEL_FORMAT_DEPTH_1_MM
-          && depthFrame.getVideoMode().getPixelFormat() != openni::PIXEL_FORMAT_DEPTH_100_UM) {
+      if ((depthFrame.getVideoMode().getPixelFormat() != openni::PIXEL_FORMAT_DEPTH_1_MM)
+          && (depthFrame.getVideoMode().getPixelFormat() != openni::PIXEL_FORMAT_DEPTH_100_UM)) {
         std::cout << "Unexpected frame format" << std::endl;
         exit(1);
       }
@@ -744,18 +769,17 @@ class OpenNIDepthReader: public DepthReader {
       get_next_frame ();
 
       return true;
-
     }
 
     inline void restart() {
       _frame=-1;
       //FIXME : how to rewind OpenNI ?
-
     }
 
-    inline bool readNextDepthFrame(float * depthMap) {
+    inline bool readNextDepthFrame(float* depthMap) {
 
-      unsigned short int* UintdepthMap = (unsigned short int*) malloc(_inSize.x * _inSize.y * sizeof(unsigned short int));
+      unsigned short int* UintdepthMap = (unsigned short int*) malloc(_inSize.x
+          * _inSize.y * sizeof(unsigned short int));
       bool res = readNextDepthFrame(NULL,UintdepthMap);
 
       for (unsigned int i = 0; i < _inSize.x * _inSize.y; i++) {
@@ -778,25 +802,33 @@ class OpenNIDepthReader: public DepthReader {
 #else
 class OpenNIDepthReader: public DepthReader {
   public:
+    /**
+     * Constructor using the ::ReaderConfiguration struct.
+     */
     OpenNIDepthReader(const ReaderConfiguration& config)
       : OpenNIDepthReader(config.data_path, config.fps, config.blocking_read){ }
 
+    /**
+     * Old style constructor. Does not support ground truth loading.
+     *
+     * @deprecated Might be removed in the future.
+     */
     OpenNIDepthReader(std::string, int, bool) {
       std::cerr << "OpenNI Library Not found." << std::endl;
       cameraOpen = false;
       cameraActive = false;
     }
 
-    bool readNextDepthFrame(float * ) { return false;
+    bool readNextDepthFrame(float* ) { return false;
     }
 
-    bool readNextDepthFrame(uchar3* , unsigned short int * ) {
+    bool readNextDepthFrame(uchar3* , unsigned short int* ) {
       return false;
     }
 
     Eigen::Vector4f getK() {
       return Eigen::Vector4f::Constant(0.f);
-    } 
+    }
 
     uint2 getinputSize() {
       return make_uint2(0);
@@ -812,3 +844,4 @@ class OpenNIDepthReader: public DepthReader {
 #endif /* DO_OPENNI*/
 
 #endif /* INTERFACE_H_ */
+
