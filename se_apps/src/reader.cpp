@@ -169,37 +169,52 @@ DepthReader *createReader(Configuration *config, std::string filename) {
   struct stat st;
   lstat(filename.c_str(), &st);
 
+  // This is for OpenNI from a camera.
   if (filename == "") {
 #ifdef DO_OPENNI
-    //This is for openni from a camera
     reader = new OpenNIDepthReader(reader_config);
-    if(!(reader->cameraOpen)) {
+    if (!(reader->cameraOpen)) {
       delete reader;
-      reader=NULL;
+      reader = nullptr;
     }
 #else
-    reader = NULL;
+    reader = nullptr;
 #endif
-  } else if (S_ISDIR(st.st_mode)) {
-    // ICL-NUIM reader
+  }
+
+  // This is for Intel RealSense cameras.
+  else if (filename == "realsense") {
+    reader = new RealSenseDepthReader(reader_config);
+    if (not (reader->cameraOpen)) {
+      delete reader;
+      reader = nullptr;
+    }
+  }
+
+  // ICL-NUIM reader.
+  else if (S_ISDIR(st.st_mode)) {
     reader = new SceneDepthReader(reader_config);
   }
+
 #ifdef DO_OPENNI
-  else if(filename.substr(filename.length()-4, 4)==".oni") {
-    //This is for openni from a file
+  // This is for OpenNI from a file.
+  else if (filename.substr(filename.length()-4, 4)==".oni") {
     reader = new OpenNIDepthReader(reader_config);
   }
 #endif
+
+  // Slambench 1.0 raw reader.
   else if (filename.substr(filename.length() - 4, 4) == ".raw") {
-    // Slambench 1.0 raw reader
     reader = new RawDepthReader(reader_config);
-  } else {
+  }
+
+  else {
     std::cerr << "Unrecognised file format file not loaded\n";
-    reader = NULL;
+    reader = nullptr;
   }
   if (reader && reader->isValid() == false) {
     delete reader;
-    reader = NULL;
+    reader = nullptr;
   }
   return reader;
 

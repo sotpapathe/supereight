@@ -8,7 +8,7 @@ if(APPLE)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D__APPLE__")
 endif(APPLE)
 
-# ---- PREPARE COMMON DEPENDENCIES  ------------ 
+# ---- PREPARE COMMON DEPENDENCIES  ------------
 
 function(add_version appname libraries)# includes)
 
@@ -44,12 +44,16 @@ function(add_version appname libraries)# includes)
   #  ------ BENCHMARK --------
   add_executable(${appname}-benchmark
       src/benchmark.cpp
-      src/PowerMonitor.cpp)
+      src/PowerMonitor.cpp
+      src/reader.cpp)
   target_link_libraries(${appname}-benchmark
       ${appname}
       ${main_common_libraries})
   target_include_directories(${appname}-benchmark PUBLIC
       include)
+
+  set_target_properties(${appname}-benchmark PROPERTIES COMPILE_FLAGS
+      "${main_common_compile_flags}")
 
   #  ------ MAIN --------
    if (GLUT_FOUND)
@@ -59,6 +63,9 @@ function(add_version appname libraries)# includes)
          src/reader.cpp)
      target_include_directories(${appname}-main PUBLIC
          include)
+
+     set_target_properties(${appname}-main PROPERTIES COMPILE_FLAGS
+         "${main_common_compile_flags}")
 
      if(APPLE)
        target_link_libraries(${appname}-main
@@ -125,7 +132,7 @@ function(add_version appname libraries)# includes)
            ${appname}
            ${GLUT_LIBRARIES}
            ${OPENGL_LIBRARIES})
-     else(APPLE) 
+     else(APPLE)
        target_link_libraries(${appname}-qt
            Qt5::Core
            Qt5::Gui
@@ -154,7 +161,7 @@ find_package(Qt5Gui)
 find_package(Qt5OpenGL)
 find_package(Qt5PrintSupport)
 
-# ---- PREPARE COMMON DEPENDENCIES  ------------ 
+# ---- PREPARE COMMON DEPENDENCIES  ------------
 
 set(common_libraries stdc++)
 foreach(appname ${BUILT_LIBS})

@@ -26,6 +26,7 @@
 #include <perfstats.h>
 
 PerfStats Stats;
+DepthReader *createReader(Configuration *config, std::string filename = "");
 
 /***
  * This program loop over a scene recording
@@ -57,15 +58,7 @@ int main(int argc, char ** argv) {
 	// ========= READER INITIALIZATION  =========
 
 	DepthReader * reader;
-
-	if (is_file(config.input_file)) {
-		reader = new RawDepthReader(config.input_file, config.fps,
-				config.blocking_read);
-
-	} else {
-		reader = new SceneDepthReader(config.input_file, config.fps,
-				config.blocking_read);
-	}
+	reader = createReader(&config);
 
 	std::cout.precision(10);
 	std::cerr.precision(10);
@@ -99,11 +92,11 @@ int main(int argc, char ** argv) {
 	uint frame = 0;
 
 	DenseSLAMSystem pipeline(
-      Eigen::Vector2i(computationSize.x, computationSize.y), 
-      config.volume_resolution, config.volume_size, 
+      Eigen::Vector2i(computationSize.x, computationSize.y),
+      config.volume_resolution, config.volume_size,
       init_pose,
       config.pyramid, config);
-     
+
 	std::chrono::time_point<std::chrono::steady_clock> timings[7];
 	timings[0] = std::chrono::steady_clock::now();
 
@@ -118,7 +111,7 @@ int main(int argc, char ** argv) {
 
 		timings[1] = std::chrono::steady_clock::now();
 
-		pipeline.preprocessing(inputDepth, 
+		pipeline.preprocessing(inputDepth,
           Eigen::Vector2i(inputSize.x, inputSize.y), config.bilateralFilter);
 
 		timings[2] = std::chrono::steady_clock::now();
@@ -153,13 +146,13 @@ int main(int argc, char ** argv) {
 
 		pipeline.renderDepth( (unsigned char*)depthRender, Eigen::Vector2i(computationSize.x, computationSize.y));
 		pipeline.renderTrack( (unsigned char*)trackRender, Eigen::Vector2i(computationSize.x, computationSize.y));
-		pipeline.renderVolume((unsigned char*)volumeRender, 
+		pipeline.renderVolume((unsigned char*)volumeRender,
         Eigen::Vector2i(computationSize.x, computationSize.y), frame,
 				config.rendering_rate, camera, 0.75 * config.mu);
 
 		timings[6] = std::chrono::steady_clock::now();
 
-		*logstream << frame << "\t" 
+		*logstream << frame << "\t"
       << std::chrono::duration<double>(timings[1] - timings[0]).count() << "\t" //  acquisition
       << std::chrono::duration<double>(timings[2] - timings[1]).count() << "\t"     //  preprocessing
       << std::chrono::duration<double>(timings[3] - timings[2]).count() << "\t"     //  tracking
@@ -179,7 +172,7 @@ int main(int argc, char ** argv) {
     std::shared_ptr<se::Octree<FieldType> > map_ptr;
     pipeline.getMap(map_ptr);
     map_ptr->save("test.bin");
-    
+
     // ==========     DUMP VOLUME      =========
 
   if (config.dump_volume_file != "") {

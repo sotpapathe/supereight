@@ -15,14 +15,15 @@
     #include <mach/mach.h>
 #endif
 
+#include <cassert>
+#include <cstdint>
+#include <cstdio>
+#include <ctime>
 #include <fstream>
-#include <sstream>
 #include <iomanip>
-#include <stdio.h>
-#include <stdbool.h>
-#include <unistd.h>
-#include <time.h>
+#include <sstream>
 #include <str_utils.h>
+#include <unistd.h>
 #include <Eigen/Dense>
 #include <thirdparty/cutil_math.h>
 
@@ -31,7 +32,8 @@
 enum ReaderType {
   READER_RAW,
   READER_SCENE,
-  READER_OPENNI
+  READER_OPENNI,
+  READER_REALSENSE
 };
 
 
@@ -66,12 +68,14 @@ class DepthReader {
       return readNextDepthFrame(NULL, UintdepthMap);
     }
 
-    virtual bool readNextDepthFrame(uchar3*              raw_rgb,
+    virtual bool readNextDepthFrame(uchar3*             raw_rgb,
                                     unsigned short int* depthMap) = 0;
 
     virtual bool readNextData(uchar3*          ,
                               uint16_t*        ,
-                              Eigen::Matrix4f& ) {return false;};
+                              Eigen::Matrix4f& ) {
+      return false;
+    };
 
     virtual Eigen::Vector4f getK() = 0;
 
@@ -842,6 +846,242 @@ class OpenNIDepthReader: public DepthReader {
     }
 };
 #endif /* DO_OPENNI*/
+
+
+
+
+
+#ifdef USE_REALSENSE
+#include <librealsense2/rs.hpp>
+
+static const int _rs_depth_w = 640;
+static const int _rs_depth_h = 480;
+static const int _rs_rgb_w = 640;
+static const int _rs_rgb_h = 480;
+
+/**
+ * Reader class for Intel RealSense RGBD cameras.
+ */
+class RealSenseDepthReader: public DepthReader {
+  private:
+    rs2::pipeline _pipeline;
+
+    /**
+     * The pipeline configuration.
+     */
+    rs2::config _config;
+
+    /**
+     * The pipeline profile.
+     */
+    rs2::pipeline_profile _profile;
+
+    /**
+     * Sets whether the depth frame is aligned to the RGB frame or vice versa.
+     */
+    rs2::align _align_to;
+
+    /**
+     * The current depth and RGB frames as returned by the pipeline.
+     */
+    rs2::frameset _frames;
+
+    /**
+     * The camera intrinsic parameters.
+     */
+    rs2_intrinsics _camera_instrinsics;
+
+    /**
+     * The parameters of the camera matrix.
+     */
+    Eigen::Vector4f _K;
+
+    /**
+     * Multiply depth frame values by this factor to convert them to meters. It
+     * is usually 0.001.
+     */
+    float _depth_scale;
+
+    /**
+     * The dimensions of the RGB and depth frames.
+     */
+    uint2 _input_size;
+
+  public:
+    /**
+     * Constructor using the ::ReaderConfiguration struct.
+     */
+    RealSenseDepthReader(const ReaderConfiguration& config)
+      : _align_to(RS2_STREAM_COLOR) {
+      std::cout << "Using RealSense2 reader\n";
+
+      // Configure the pipeline.
+      _config.enable_stream(RS2_STREAM_DEPTH, -1,
+          _rs_depth_w, _rs_depth_h, RS2_FORMAT_Z16, config.fps);
+      _config.enable_stream(RS2_STREAM_COLOR, -1,
+          _rs_rgb_w, _rs_rgb_h, RS2_FORMAT_RGB8, config.fps);
+
+      // Start the pipeline.
+      _profile = _pipeline.start(_config);
+
+      // Create a video_stream_profile to allow getting the camera intrinsics.
+      const rs2::video_stream_profile vs_profile(
+          _profile.get_stream(RS2_STREAM_COLOR));
+
+      // Get the camera intrinsic parameters.
+      _camera_instrinsics = vs_profile.get_intrinsics();
+      _K = Eigen::Vector4f(_camera_instrinsics.fx, _camera_instrinsics.fy,
+          _camera_instrinsics.ppx, _camera_instrinsics.ppy);
+      _input_size = make_uint2(_camera_instrinsics.width,
+          _camera_instrinsics.height);
+
+      // Get the scale of the first depth sensor.
+      const rs2::depth_sensor depth_device
+          = _profile.get_device().first<rs2::depth_sensor>();
+      _depth_scale = depth_device.get_depth_scale();
+
+      cameraOpen = true;
+      cameraActive = true;
+
+      std::cout << "  width:       " << _camera_instrinsics.width << std::endl;
+      std::cout << "  height:      " << _camera_instrinsics.height << std::endl;
+      std::cout << "  fx:          " << _camera_instrinsics.fx << std::endl;
+      std::cout << "  fy:          " << _camera_instrinsics.fy << std::endl;
+      std::cout << "  cx:          " << _camera_instrinsics.ppx << std::endl;
+      std::cout << "  cy:          " << _camera_instrinsics.ppy << std::endl;
+      std::cout << "  depth scale: " << _depth_scale << " m\n";
+    }
+
+
+
+    ~RealSenseDepthReader() {
+      // TODO
+    }
+
+
+
+    bool readNextDepthFrame(float* depth) {
+      // Block program until frames arrive.
+      _frames = _pipeline.wait_for_frames();
+
+      // Align frames
+      _frames = _frames.apply_filter(_align_to);
+
+      const rs2::depth_frame rs_depth = _frames.get_depth_frame();
+
+      // Copy depth frame data and convert to meters.
+      const uint16_t* raw_depth_data = (uint16_t*) rs_depth.get_data();
+#pragma omp parallel for
+      for (int p = 0; p < _rs_depth_w * _rs_depth_h; ++p) {
+        depth[p] = _depth_scale * raw_depth_data[p];
+      }
+
+      _frame++;
+
+      return true;
+    }
+
+
+
+    bool readNextDepthFrame(uchar3* rgb, unsigned short int* depth) {
+      // Block program until frames arrive.
+      _frames = _pipeline.wait_for_frames();
+
+      // Align frames
+      _frames = _frames.apply_filter(_align_to);
+
+      const rs2::depth_frame rs_depth = _frames.get_depth_frame();
+      const rs2::video_frame rs_rgb = _frames.get_color_frame();
+
+      // Copy RGB frame data.
+      if (rgb != nullptr) {
+        memcpy(rgb, rs_rgb.get_data(),
+            _rs_rgb_w * _rs_rgb_h * sizeof(uchar3));
+      }
+
+      // Copy depth frame data.
+      if (_depth_scale == 0.001) {
+        // The depth is already in millimeters. mm2metersKernel() will then
+        // convert it to meters.
+        memcpy(depth, rs_depth.get_data(),
+            _rs_depth_w * _rs_depth_h * sizeof(uint16_t));
+      } else {
+        const uint16_t* raw_depth_data = (uint16_t*) rs_depth.get_data();
+        // Convert the depth to millimeters.
+#pragma omp parallel for
+        for (int p = 0; p < _rs_depth_w * _rs_depth_h; ++p) {
+          depth[p] = 1000.f * _depth_scale * raw_depth_data[p];
+        }
+      }
+
+      _frame++;
+      return true;
+    }
+
+
+
+    Eigen::Vector4f getK() {
+      return _K;
+    }
+
+
+
+    uint2 getinputSize() {
+      return _input_size;
+    }
+
+
+
+    void restart() {
+      _frame = -1;
+    }
+
+
+
+    ReaderType getType() {
+      return READER_REALSENSE;
+    }
+};
+#else
+/**
+ * Dummy class for when the RealSense2 library is not available. It does
+ * nothing.
+ */
+class RealSenseDepthReader: public DepthReader {
+  public:
+    /**
+     * Constructor using the ::ReaderConfiguration struct.
+     */
+    RealSenseDepthReader(const ReaderConfiguration& config) {
+      std::cerr << "RealSense2 library not found\n";
+      cameraOpen = false;
+      cameraActive = false;
+    }
+
+    bool readNextDepthFrame(float* ) {
+      return false;
+    }
+
+    bool readNextDepthFrame(uchar3* , unsigned short int* ) {
+      return false;
+    }
+
+    Eigen::Vector4f getK() {
+      return Eigen::Vector4f::Constant(0.f);
+    }
+
+    uint2 getinputSize() {
+      return make_uint2(0);
+    }
+
+    void restart() {
+    }
+
+    ReaderType getType() {
+      return (READER_REALSENSE);
+    }
+};
+#endif // USE_REALSENSE
 
 #endif /* INTERFACE_H_ */
 
