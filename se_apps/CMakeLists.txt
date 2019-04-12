@@ -32,6 +32,15 @@ function(add_version appname libraries)# includes)
         "-DDO_OPENNI ${main_common_compile_flags}")
   endif(OPENNI2_FOUND)
 
+  if(REALSENSE2_FOUND)
+    include_directories(${REALSENSE2_INCLUDE_DIRS})
+    set(main_common_libraries
+        ${main_common_libraries}
+        ${REALSENSE2_LIBRARIES})
+    set(main_common_compile_flags
+		"-DUSE_REALSENSE ${main_common_compile_flags}")
+  endif(REALSENSE2_FOUND)
+
   #  ------ BENCHMARK --------
   add_executable(${appname}-benchmark
       src/benchmark.cpp
@@ -137,6 +146,7 @@ endfunction()
 find_package(GLUT   )
 find_package(OpenGL )
 find_package(OpenNI2)
+find_package(RealSense2)
 find_package(PkgConfig)
 find_package(Qt5Core)
 find_package(Qt5Widgets)
